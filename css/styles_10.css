@@ -1,0 +1,50 @@
+
+/* QC my VDS sheet (More menu): read-only compare of the designer's own VDS workbook against the tool */
+.qc-box{max-width:1400px;height:90vh;display:flex;flex-direction:column}
+.qc-box .qc-head{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;justify-content:space-between;margin-bottom:6px}
+.qc-box .qc-head h3{margin:0}
+.qc-box .qc-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 8px}
+.qc-box .qc-bar select{font:inherit;padding:4px 6px;max-width:520px}
+.qc-box .qc-split{display:grid;grid-template-columns:minmax(300px,1fr) minmax(420px,1.35fr);gap:12px;flex:1;min-height:0}
+.qc-box .qc-left,.qc-box .qc-right{overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:0}
+.qc-box h4{margin:2px 0 6px;font-size:14.5px}
+.qc-box ol.qc-steps{list-style:none;padding:0;margin:0}
+.qc-box ol.qc-steps li{border:1px solid var(--line);border-left:4px solid var(--tbd);border-radius:6px;padding:6px 8px;margin:6px 0;cursor:pointer;font-size:12.5px}
+.qc-box ol.qc-steps li.err{border-left-color:var(--fail)}
+.qc-box .qc-alert{background:#fdecea;border:1px solid var(--fail,#c62828);border-radius:6px;padding:8px 10px;margin:4px 0 8px;font-size:12.5px;line-height:1.45}
+.qc-box .qc-done{float:right;margin-left:8px;font-size:11.5px;font-weight:600;color:var(--pass,#1e7d32);display:inline-flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap}
+.qc-box ol.qc-steps li.done{border-left-color:var(--pass,#1e7d32);opacity:.55} .qc-box ol.qc-steps li.done .qc-why,.qc-box ol.qc-steps li.done .qc-fix,.qc-box ol.qc-steps li.done .qc-drives{display:none}
+.qc-box .qc-row.done td{color:var(--muted,#777)} .qc-box .qc-row.done .qc-mk{color:var(--pass,#1e7d32)} .qc-box ol.qc-steps li.on{outline:2px solid var(--accent)}
+.qc-box .qc-n{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--panel-2);font-weight:700;font-size:11px;margin-right:6px}
+.qc-box .qc-cellref{font-family:var(--mono,monospace);color:var(--muted);margin-left:4px}
+.qc-box .qc-yt{display:flex;gap:16px;margin:3px 0}
+.qc-box .qc-why{color:var(--muted)} .qc-box .qc-fix{margin-top:2px}
+.qc-box table.qc-sheet{border-collapse:collapse;width:100%;font-size:12.5px;margin:0}
+.qc-box table.qc-sheet th{position:sticky;top:-8px;background:var(--panel-2);z-index:1}
+.qc-box table.qc-sheet td,.qc-box table.qc-sheet th{border:1px solid var(--line);padding:3px 6px}
+.qc-box td.qc-rn{color:var(--muted);text-align:center;width:34px} .qc-box td.qc-lbl{font-style:italic}
+.qc-box td.qc-mine,.qc-box td.qc-tool{white-space:nowrap;text-align:center;font-weight:600}
+.qc-box td.qc-tool{color:var(--muted);font-weight:500} .qc-box td.qc-mk{text-align:center;width:24px;font-weight:700}
+.qc-box tr.qc-sec td{background:#1f3b2d;color:#fff;font-weight:700;letter-spacing:.3px;font-size:11.5px;text-transform:uppercase}
+.qc-box tr.qc-row{cursor:default} .qc-box tr.qc-row.err{background:#fce8e6;cursor:pointer} .qc-box tr.qc-row.chk{background:#fef7e0;cursor:pointer}
+.qc-box tr.qc-row.err td.qc-mk{color:var(--fail)} .qc-box tr.qc-row.chk td.qc-mk{color:var(--tbd)} .qc-box tr.qc-row.ok td.qc-mk{color:var(--pass)}
+.qc-box tr.qc-row.follow{color:#3c4a57;background:#eef2f7} .qc-box tr.qc-row.follow td.qc-mine{font-weight:500} .qc-box tr.qc-row.follow td.qc-mk{color:#5b6b7b;font-size:11px;white-space:nowrap}
+.qc-box .qc-drives{margin-top:3px;font-size:12px;color:#3c4a57;background:#eef2f7;border-radius:4px;padding:2px 6px}
+.qc-box tr.qc-row.on td{outline:2px solid var(--accent);outline-offset:-2px}
+.qc-box .qc-legend{display:flex;gap:12px;font-size:12px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
+.qc-box .qc-legend .err{color:var(--fail)} .qc-box .qc-legend .chk{color:var(--tbd)}
+.qc-box .qc-fl{color:#8430ce;font-weight:700} .qc-box ol.qc-steps li.fail{border-left-color:#8430ce}
+.qc-box tr.qc-row.fail{background:#f3e8fd;cursor:pointer} .qc-box tr.qc-row.fail td.qc-mk{color:#8430ce}
+.qc-box .qc-note{font-family:var(--mono,monospace);background:var(--panel-2);padding:0 4px;border-radius:3px}
+.qc-box button.qc-copy{font-size:11px;padding:1px 6px;margin-left:4px}
+.qc-box .qc-sum{display:flex;gap:14px;flex-wrap:wrap;margin:4px 0 8px;font-size:13px}
+.qc-box .qc-sum b{font-size:16px}
+.qc-err{color:var(--fail);font-weight:700}.qc-chk{color:var(--tbd);font-weight:700}.qc-ok{color:var(--pass);font-weight:700}
+.qc-box details.qc-pole{border:1px solid var(--line);border-radius:8px;margin:6px 0;padding:4px 10px}
+.qc-box details.qc-pole>summary{cursor:pointer;font-weight:600;padding:2px 0}
+.qc-box td.qc-cell{font-family:var(--mono,monospace);white-space:nowrap}
+.qc-box td.qc-v{white-space:nowrap}
+.qc-box .qc-fix{display:block;margin-top:2px}
+.qc-box .qc-follow{font-size:12px;color:var(--muted);margin:4px 0}
+.qc-box .qc-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+.qc-box tr.err td:first-child{border-left:3px solid var(--fail)} .qc-box tr.chk td:first-child{border-left:3px solid var(--tbd)}

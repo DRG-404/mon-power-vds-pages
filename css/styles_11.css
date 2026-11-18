@@ -1,0 +1,3 @@
+
+/* Lean toolbar (11-09): only what designers use. The tools are hidden, not removed. */
+#btn-design,#btn-copy-all,#btn-nt-all,#btn-hidden,#btn-adv,#adv-tools,.gs-toolbar .sep,.gs-toolbar label:has(#qa-layout){display:none!important}

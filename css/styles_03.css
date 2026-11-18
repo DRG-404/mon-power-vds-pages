@@ -1,0 +1,31 @@
+
+/* ---------- header as 4 separate steps ---------- */
+.gs-menu{display:none!important}
+.steps{display:flex;flex-wrap:wrap;gap:12px;align-items:stretch;padding:10px 16px 12px;background:var(--panel-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.step{flex:1 1 200px;min-width:0;display:flex;flex-direction:column;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.step .sh{display:flex;align-items:center;gap:8px;font:700 12px var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.step .sn{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--line);color:var(--fg);font:700 12px var(--body)}
+.step.now{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.step.now .sn{background:var(--accent);color:var(--accent-fg)}
+.step.done .sn{background:var(--pass);color:#fff}
+.step .sb{display:flex;flex-wrap:wrap;gap:6px}
+.step .sb button,.step .sb .filebtn button{border:1px solid var(--line);background:var(--panel);font:600 14px var(--body);padding:7px 14px;border-radius:8px;color:var(--fg)}
+.step.now .sb .main,.step.now .sb .main button{background:var(--accent)!important;border-color:var(--accent)!important;color:var(--accent-fg)!important}
+.step .sb button:disabled{opacity:.45}
+.step .hint{font-size:12px;color:var(--muted)}
+.more-wrap{flex:0 0 auto;display:flex;align-items:flex-start;position:relative}
+.more-wrap > button{border:1px solid var(--line);background:var(--panel);font:600 14px var(--body);padding:7px 14px;border-radius:8px;color:var(--fg)}
+.hdr-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:50;min-width:230px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:6px;display:flex;flex-direction:column}
+.hdr-menu button,.hdr-menu .filebtn button{display:block;width:100%;text-align:left;border:0!important;background:transparent!important;color:var(--fg)!important;font:500 14px var(--body)!important;padding:8px 10px!important;border-radius:6px}
+.hdr-menu .filebtn{display:block}
+.hdr-menu button:hover:not(:disabled),.hdr-menu .filebtn:hover button{background:var(--accent-soft)!important}
+.hdr-menu hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
+.gs-toolbar{margin-top:6px}
+.gs-toolbar::before{content:"Sheet tools";align-self:center;font:700 11px var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-right:6px}
+.empty .bigload{margin-top:12px}
+.empty .prejson{border-left:4px solid #b45309;background:color-mix(in srgb,#f59e0b 12%,transparent);padding:10px 14px;margin:0 0 12px;border-radius:4px}
+.empty .prejson ol{margin:6px 0 0;padding-left:22px}
+.empty .prejson li{margin:2px 0}
+#tabs .ref-tabs{display:inline-flex;align-items:center;gap:6px;margin-left:12px;padding:0 10px;color:var(--muted);font-size:13px}
+#tabs .ref-tabs.on{color:var(--accent);font-weight:600}
+#tabs .ref-tabs select{font:inherit;padding:3px 6px}

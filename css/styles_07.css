@@ -1,0 +1,8 @@
+
+/* Simple view */
+body:not(.show-panel) #notes{display:none!important}
+body:not(.show-adv) .adv-tools{display:none!important}
+.adv-tools{display:contents}
+.gs-toolbar .panel-btn{margin-left:auto;border:1px solid var(--accent)!important;color:var(--accent)!important;background:var(--panel)!important;font-weight:600!important;border-radius:16px!important;padding:5px 14px!important}
+.gs-toolbar .panel-btn[aria-pressed="true"]{background:var(--accent)!important;color:var(--accent-fg)!important}
+#btn-adv{font-weight:600}

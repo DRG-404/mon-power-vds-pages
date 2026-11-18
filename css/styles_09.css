@@ -1,0 +1,11 @@
+
+/* Check recommendations (whole job self-test) */
+.ck-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:12.5px}
+.ck-modal{position:fixed;inset:0;z-index:1001;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding:5vh 12px;overflow:auto}
+.ck-box{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:12px;max-width:760px;width:100%;padding:14px 18px 16px;box-shadow:0 10px 40px rgba(0,0,0,.3);font-size:13.5px}
+.ck-box h3{margin:0 0 6px;font:700 18px var(--display)}
+.ck-box table{border-collapse:collapse;width:100%;margin:6px 0;font-size:12.5px}
+.ck-box th,.ck-box td{border:1px solid var(--line);padding:3px 7px;text-align:left;vertical-align:top}
+.ck-ok{color:var(--pass);font-weight:700}.ck-bad{color:var(--fail);font-weight:700}.ck-info{color:var(--tbd);font-weight:700}
+.ck-prog{height:6px;background:var(--panel-2);border-radius:4px;overflow:hidden;margin:8px 0}
+.ck-prog>div{height:100%;background:var(--accent);width:0;transition:width .2s}

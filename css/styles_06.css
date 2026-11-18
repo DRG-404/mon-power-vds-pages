@@ -1,0 +1,37 @@
+
+/* ---------- Design guide (help per violation, raise / replace recommendation, Midspan Calculator) ---------- */
+.dg-help{margin-top:6px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-size:13px}
+.dg-help summary{cursor:pointer;padding:5px 9px;font-weight:700;color:#1a5fb4}
+.dg-help .dg-b{padding:2px 12px 8px}
+.dg-help p{margin:4px 0}
+.dg-help ol{margin:4px 0;padding-left:20px}
+.notes .dg-help ol li,.dg-help ol li,.dg-card ol li{display:list-item!important;grid-template-columns:none!important;background:none!important;border:0!important;padding:0!important;margin:0 0 3px!important;line-height:1.4;box-shadow:none!important;min-width:0}
+.dg-card{border:2px solid var(--accent);border-radius:10px;background:var(--panel);padding:8px 12px 10px;margin:8px 0;font-size:13px}
+.dg-card.mc{border-color:#1a5fb4}
+.dg-card h4{margin:0 0 4px;font:700 16px var(--display);letter-spacing:.2px}
+.dg-card .dg-pick{font-size:15px;font-weight:700;margin:4px 0}
+.dg-card .dg-pick b{color:var(--accent)}
+.dg-card.mc .dg-pick b{color:#1a5fb4}
+.dg-card p{margin:4px 0}
+.dg-card ol{margin:4px 0;padding-left:20px}
+.dg-card code,.dg-help code{font:700 12px ui-monospace,Consolas,monospace;background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.dg-card kbd,.dg-help kbd{display:inline-block;font:700 12px ui-monospace,Consolas,monospace;padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;background:var(--panel-2)}
+.dg-scroll{overflow-x:auto;max-width:100%}
+.dg-t{border-collapse:collapse;margin:6px 0;font-size:12px}
+.dg-t th,.dg-t td{border:1px solid var(--line);padding:2px 7px;text-align:center}
+.dg-t tr.pick td{background:var(--pass-soft);font-weight:700}
+.dg-t td.no{color:var(--fail)} .dg-t td.ok{color:var(--pass)}
+.dg-fig{margin:6px 0}
+.dg-fig figcaption{font-size:12px;font-weight:600;margin-bottom:2px}
+.dg-svg{width:100%;height:auto;display:block;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;cursor:zoom-in}
+.dg-svg text{font:11px var(--body);fill:var(--fg)}
+.dg-zoom{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;cursor:zoom-out}
+.dg-zoom .dg-svg{width:min(92vw,1000px);max-height:90vh;background:var(--panel);cursor:zoom-out}
+.dg-svg .m{fill:var(--muted)}
+.dg-svg .tag{font-weight:700}
+.dg-warn{color:var(--tbd);font-size:12px}
+.dg-alt{border-left:3px solid var(--line);padding-left:8px;margin:6px 0}
+.dg-upl{border-top:1px dashed var(--line);margin-top:8px;padding-top:4px}
+.dg-more{border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:13px}
+.dg-more>summary{cursor:pointer;color:var(--muted);font-weight:600}
+.dg-rec .dg-card{margin-top:0}

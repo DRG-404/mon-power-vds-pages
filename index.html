@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Violation Determination Sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="./css/styles_01.css">
+</head>
+<body>
+<header class="gs-top">
+  <div class="gs-titlebar">
+    <svg class="gs-logo" viewBox="0 0 24 32" aria-hidden="true"><path d="M15 0H3a3 3 0 0 0-3 3v26a3 3 0 0 0 3 3h18a3 3 0 0 0 3-3V9z" fill="#0f9d58"/><path d="M15 0v6a3 3 0 0 0 3 3h6z" fill="#87ceac"/><path d="M6 14h12v11H6zm2 2v2h3v-2zm5 0v2h3v-2zm-5 4v3h3v-3zm5 0v3h3v-3z" fill="#fff"/></svg>
+    <div class="gs-tt">
+      <div class="gs-name"><h1>Violation Determination Sheet</h1><span class="job" id="job-name">No Katapult job loaded</span></div>
+      <nav class="gs-menu" aria-label="File">
+        <span class="filebtn"><button type="button" tabindex="-1">Load Job JSON</button><input type="file" id="k-file" accept=".json,application/json" aria-label="Load the existing (before) Katapult Job JSON"></span>
+        <span class="filebtn"><button type="button" tabindex="-1">Load after JSON</button><input type="file" id="a-file" accept=".json,application/json" aria-label="Load the after make-ready Katapult Job JSON"></span>
+        <button type="button" id="btn-layers" disabled title="WVDOH state / county route or railroad KMZ/KML, to set DOT Road / Railroad spans">Route / rail KMZ</button>
+        <button type="button" id="btn-elev" disabled title="USGS ground elevation at the poles and midspan, for the elevation credit">Check elevation</button>
+        <button type="button" id="btn-save" title="Save every column (and your verified environments) to a small file you can open later">Save session</button>
+        <span class="filebtn"><button type="button" tabindex="-1">Open session</button><input type="file" id="s-file" accept=".json,application/json" aria-label="Open a saved session file"></span>
+        <button type="button" id="btn-help">How it works</button>
+      </nav>
+    </div>
+    <button type="button" class="gs-share" id="btn-xlsx" title="Your Violation Determination workbook with every column filled in and Fail notes on the failing cells">Download .xlsx</button>
+  </div>
+  <div class="gs-toolbar" role="toolbar" aria-label="Sheet tools">
+    <button type="button" id="btn-all" disabled title="Rebuild every pole's column from the loaded Job JSON (typed changes are replaced)">Rebuild every pole</button>
+    <button type="button" id="btn-prev" aria-label="Previous pole in selected column" disabled>◀</button>
+    <button type="button" id="btn-next" aria-label="Next pole in selected column" disabled>▶</button>
+    <button type="button" id="btn-addcol">+ Column</button>
+    <span class="sep" aria-hidden="true"></span>
+    <button type="button" id="btn-plan" title="Put the fix plan for the selected pole into an After MR column">Apply fix plan</button>
+    <button type="button" id="btn-after" title="Copy the selected pole into an After MR column with the Katapult MR View moves applied">+ After MR column</button>
+    <button type="button" id="btn-design" title="Build the SCID MR column of every pole that has a saved replacement design (new pole size, heights, midspans)">Use saved designs</button>
+    <button type="button" id="btn-lock" aria-pressed="false" title="Existing Katapult heights are locked so the existing-violation record can't be typed over">Unlock existing heights</button>
+    <span class="sep" aria-hidden="true"></span>
+    <input id="start-col" value="B" maxlength="3" hidden>
+    <button type="button" id="btn-copy-one" title="Copies the selected column (formulas and formatting) to your clipboard, to paste into the same column of your VDS worksheet">Copy column to clipboard</button>
+    <label class="inline" title="QAQC layout (team, EOD 10-22): each pole gets its existing column, and an After MR column right next to it only if it has make-ready. No Pre-1990 copies; No MR poles get one column."><input type="checkbox" id="qa-layout"> QAQC layout</label>
+    <button type="button" id="btn-copy-all" title="Copies every column to your clipboard, to paste at B1 of your VDS worksheet">Copy all columns to clipboard</button>
+    <button type="button" id="btn-nt-all" title="One Notes worksheet row per pole, ready to paste at A8">Copy Notes rows</button>
+    <span class="sep" aria-hidden="true"></span>
+    <button type="button" id="btn-hidden" aria-pressed="false">Show hidden rows</button>
+    <button type="button" id="btn-clear">Clear</button>
+  </div>
+  <div class="gs-fbar"><input id="namebox" class="namebox" readonly aria-label="Selected cell"><span class="fx" aria-hidden="true">fx</span><div class="fxval"><span id="fx"></span><span id="fxnote"></span></div></div>
+</header>
+
+<div class="status" id="status"></div>
+<div id="empty" class="empty" hidden><div class="prejson"><b>Before you download the Job JSON, clean up the job in Katapult.</b> Assume the tracing isn't accurate: the tool only reads what's in Katapult, so every mistake there ends up on the sheet.
+<ol><li>Go through <b>every pole</b> in the job, not just the ones with notes.</li>
+<li>Move each pole marker onto the <b>pole's shadow</b> in the aerial, so span lengths and directions are right.</li>
+<li>Fix the <b>down guy / anchor alignment</b> on each pole.</li>
+<li>Check the traces: each wire goes to the right pole, with the right company, wire type and spec (streetlight sizes are often mislabeled).</li>
+<li>Then export the Job JSON (Download Manager → Data → Job JSON).</li></ol></div>Then click <b>Load Job JSON</b> in step 1 above, or drop the file anywhere on this page. After the make-ready in Katapult, use <b>Load after JSON</b> to re-check every pole. Each pole gets its own column, the same as your Violation Determination sheet. Every pole gets its column when the job loads.</div>
+
+<input type="file" id="lyr-file" accept=".kmz,.kml" multiple hidden>
+<div class="work" id="work">
+  <div class="sheet-wrap" id="wrap"><table class="sheet" id="sheet"></table></div>
+  <div class="tabview" id="tabview" hidden></div>
+  <aside class="notes" id="notes" aria-label="Violation notes for the selected pole"></aside>
+</div>
+
+<nav class="gs-tabs" id="tabs" aria-label="Sheets"></nav>
+<div class="toast" id="toast" hidden></div>
+
+<script src="./js/script_01.js"></script>
+<script src="./js/script_02.js"></script>
+<script src="./js/script_03.js"></script>
+<script src="./js/script_04.js"></script>
+<script src="./js/script_05.js"></script>
+<link rel="stylesheet" href="./css/styles_02.css">
+<script src="./js/script_06.js"></script>
+<link rel="stylesheet" href="./css/styles_03.css">
+<script src="./js/script_07.js"></script>
+<script src="./js/script_08.js"></script>
+<link rel="stylesheet" href="./css/styles_04.css">
+<link rel="stylesheet" href="./css/styles_05.css">
+<script src="./js/script_09.js"></script>
+<link rel="stylesheet" href="./css/styles_06.css">
+<script src="./js/script_10.js"></script>
+
+<link rel="stylesheet" href="./css/styles_07.css">
+<script src="./js/script_11.js"></script>
+
+<script src="./js/script_12.js"></script>
+
+<link rel="stylesheet" href="./css/styles_08.css">
+<script src="./js/script_13.js"></script>
+<link rel="stylesheet" href="./css/styles_09.css">
+<script src="./js/script_14.js"></script>
+
+<link rel="stylesheet" href="./css/styles_10.css">
+<script src="./js/script_15.js"></script>
+
+<link rel="stylesheet" href="./css/styles_11.css">
+<script src="./js/script_16.js"></script>
+
+
+</body></html>
