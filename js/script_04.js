@@ -412,15 +412,17 @@ const K = {
   },
   poleWires(pf){
     const out = [];
-    const walk = (o, h, spec) => {
+    const walk = (o, h, spec, mr) => {
       if(!o || typeof o!=="object") return;
       const myH = typeof o._measured_height==="number" ? o._measured_height : h;
       const mySpec = o.wire_spec || spec;
+      // 11/19: a move set on the insulator / messenger moves the wires under it (Katapult MR view does)
+      const myMr = o.mr_move ?? mr;
       for(const [k,v] of Object.entries(o)){
         if(k.startsWith("_prediction") || k==="anchor_calibration" || k==="pixel_selection") continue;
         if(k==="wire" && v && typeof v==="object"){
-          for(const w of Object.values(v)){ if(w && w._trace) out.push({trace:w._trace, h: typeof w._measured_height==="number" ? w._measured_height : myH, spec: w.wire_spec || w.bundle_spec || mySpec, mr: w.mr_move ?? o.mr_move}); }
-        } else if(v && typeof v==="object") walk(v, myH, mySpec);
+          for(const w of Object.values(v)){ if(w && w._trace) out.push({trace:w._trace, h: typeof w._measured_height==="number" ? w._measured_height : myH, spec: w.wire_spec || w.bundle_spec || mySpec, mr: w.mr_move ?? myMr}); }
+        } else if(v && typeof v==="object") walk(v, myH, mySpec, myMr);
       }
     };
     walk(pf, null, null);
@@ -437,7 +439,9 @@ const K = {
         const L = (n1 && n2 && n1.latitude!=null && n2.latitude!=null) ? K.dist(n1, n2) : 0;
         const u = {wires:{}, overs:[], f1: (L > 0 && s.latitude!=null) ? Math.min(1, K.dist(n1, s) / L) : null};
         for(const w of Object.values(pf.wire||{})){ if(w?._trace && typeof w._measured_height==="number"){ if(wires[w._trace]==null || w._measured_height < wires[w._trace]) wires[w._trace] = w._measured_height; if(u.wires[w._trace]==null || w._measured_height < u.wires[w._trace]) u.wires[w._trace] = w._measured_height; } }
-        for(const g of [...Object.values(pf.ground_marker||{}), ...Object.values(pf.midspanHeight||{})]) if(g?.over){ overs.push(g.over); u.overs.push(g.over); }
+        // 11/22: the environment set on the midspan height marker wins over Katapult's auto-added ground marker in the same photo
+        { const mhs = Object.values(pf.midspanHeight||{}).filter(g=>g?.over), gms = Object.entries(pf.ground_marker||{}).filter(([k,g])=>g?.over && !(k==="auto_added" && mhs.length)).map(([,g])=>g);
+          for(const g of [...gms, ...mhs]){ overs.push(g.over); u.overs.push(g.over); } }
         units.push(u);
       }
     }
@@ -860,7 +864,7 @@ function afterCol(src, job, hooks){   // hooks (optional): {move(t), other(k,t),
   // Katapult MR View moves each midspan photo by where it sits in the span: move here × (share of the span from the far end) + move at the far end × (the rest).
   // The lowest result over the span's photos goes on the sheet. Falls back to the ½ rule (1' at the pole ≈ 6" at midspan) when the photo has no position.
   const secMid = (t, k) => { const U = unitsOf(k); if(!U) return null; let best = null;
-    for(const u of U.units){ const h = u.wires[t]; if(h==null || u.f1==null) continue; if(!nc.spans[k]?.unitEnv && U.pairEnv && U.P.includes(t) && u.env !== U.pairEnv) continue; if(nc.spans[k]?.unitEnv && u.env !== nc.spans[k].unitEnv) continue; const share = U.here1 ? 1 - u.f1 : u.f1, v = h + mv(t)*share + omv(k,t)*(1-share); if(best==null || v < best) best = v; }
+    for(const u of U.units){ const h = u.wires[t]; if(h==null || u.f1==null) continue; if(!nc.spans[k]?.unitEnv && U.pairEnv && U.P.includes(t) && u.env !== U.pairEnv) continue; if(nc.spans[k]?.unitEnv && u.env !== nc.spans[k].unitEnv) continue; const share = U.here1 ? 1 - u.f1 : u.f1, v = h + Math.round(mv(t)*share) + Math.round(omv(k,t)*(1-share)); /* Katapult rounds each pole's share of the move to a whole inch (MR view: [-4"]) (11/20) */ if(best==null || v < best) best = v; }
     return best; };
   // A span the WV layers pinned to one midspan photo (unitEnv, the photo over the road): the existing column shows that photo's
   // heights for the power and the comms alike, so the After MR column moves that same photo's heights (11/16: the power came
@@ -913,18 +917,25 @@ function afterCol(src, job, hooks){   // hooks (optional): {move(t), other(k,t),
   return nc;
 }
 
-function violationsOf(c, L){   // every violation in one column, with its code (pure: no sheet state)
+/* 11/22: the VDS shows only what the VDS sheet shows. Checks the sheet doesn't have (a comm's midspan to power, comm to comm at the
+   pole and in midspan, 44" / 40" from the power bolts, drip loops and risers) run only with violationsOf(c, L, {full:true}). */
+function violationsOf(c, L, o){
+  const FULL = o && o.full != null ? !!o.full : (typeof window !== "undefined" && !!window.VDS_FULL_CHECKS);   // every violation in one column, with its code (pure: no sheet state)
   L = L || ""; const R = compute(c), out = [];   // compute() points S at c
   const add = o => out.push(o);
   KEYS.forEach((k,i)=>{ for(const r of [63+i,87+i]) if(R.CL[r]==="fail") add({who:"Power", what:"lowest power", k, code:"EGC", cell:L+r, note:R.NT[r], power:true}); });
   const atts = S.atts.map((a,j)=>({a,j})).filter(x=>realAtt(x.a));
   const isZ = a => /zayo/i.test(a.name||"");   // Zayo FE ADSS in power space: not held to the comm-to-power spacing (CS 19-203)
+  // 11/19: only what the VDS sheet itself would show. A span whose length rounds under 100' has no table row, so the
+  // sheet leaves that comm's rows blank there (11/11): no comm check runs in that span, and a comm in short spans only isn't checked.
+  const onSheet = (j, i) => { const v = R.V[ATT_BASE(j)+20+i], h = parseFt(S.atts[j]?.vals?.[KEYS[i]]?.pole); return v!=null && String(v).trim()!=="" && h!=null && !isNaN(h); };
+  const sheetComm = j => KEYS.some((k,i)=>S.active.includes(k) && onSheet(j, i));
   atts.forEach(({a,j})=>{
     const b = ATT_BASE(j);
     KEYS.forEach((k,i)=>{
       for(const r of [b+20+i, b+26+i, b+38+i]) if(R.CL[r]==="fail" && !(isZ(a) && rowCode(r)==="EPC")) add({who:a.name||`Attachment ${j+1}`, what:KIND[a.type]||"Comm", k, code:rowCode(r), cell:L+r, note:R.NT[r], j});
       const sp = S.spans[k], pm = parseFt(sp.mid), cm = parseFt(a.vals[k]?.mid);
-      if(S.active.includes(k) && pm!=null && !isNaN(pm) && cm!=null && !isNaN(cm)){
+      if(FULL && S.active.includes(k) && onSheet(j, i) && pm!=null && !isNaN(pm) && cm!=null && !isNaN(cm)){
         const need = midNeed(sp);
         if(pm - cm < need && !isZ(a)) add({who:a.name||`Attachment ${j+1}`, what:KIND[a.type]||"Comm", k, code:"EBC", cell:L+(b+14+i), note:`Fail at ${fmt(pm-cm)} below the ${PWR_NAME[sp.ptype]||"lowest power"} in midspan (needs ${need}")`, j});
       }
@@ -932,29 +943,29 @@ function violationsOf(c, L){   // every violation in one column, with its code (
   });
   // comm to comm: at the pole 12" (different company) / 6" (same company) → EPC on the upper (more recent) attacher; midspan 4" → EBC
   const ph = x => Math.max(...KEYS.map(k=>parseFt(x.a.vals[k]?.pole)).filter(v=>v!=null && !isNaN(v)));
-  for(let n=0;n<atts.length-1;n++){
+  for(let n=0;FULL && n<atts.length-1;n++){
     const up = atts[n], lo = atts[n+1], hu = ph(up), hl = ph(lo);
     const dropPair = String(up.a.name).trim().toLowerCase()===String(lo.a.name).trim().toLowerCase() && (up.a.drop || lo.a.drop);
     if(isFinite(hu) && isFinite(hl)){
       const same = String(up.a.name).trim().toLowerCase()===String(lo.a.name).trim().toLowerCase(), need = isZ(up.a) ? 30 : same ? 6 : 12;   // comms 30" below Zayo (CS 19-203)
-      if(!dropPair && !(same && hu===hl) && hu - hl < need) add({who:isZ(up.a) ? lo.a.name : up.a.name, what:KIND[up.a.type]||"Comm", k:null, code:"EPC", cell:L+(ATT_BASE(up.j)+8), note:isZ(up.a) ? `Fail at ${fmt(hu-hl)} below Zayo FE ADSS at the pole (needs 30")` : `Fail at ${fmt(hu-hl)} above ${lo.a.name||"the next comm"} at the pole (needs ${need}"${same?", same company":""})`, j:up.j});
+      if(!dropPair && !(same && hu===hl) && sheetComm(up.j) && sheetComm(lo.j) && hu - hl < need) add({who:isZ(up.a) ? lo.a.name : up.a.name, what:KIND[up.a.type]||"Comm", k:null, code:"EPC", cell:L+(ATT_BASE(up.j)+8), note:isZ(up.a) ? `Fail at ${fmt(hu-hl)} below Zayo FE ADSS at the pole (needs 30")` : `Fail at ${fmt(hu-hl)} above ${lo.a.name||"the next comm"} at the pole (needs ${need}"${same?", same company":""})`, j:up.j});
     }
     const sameCo = String(up.a.name).trim().toLowerCase()===String(lo.a.name).trim().toLowerCase();
     KEYS.forEach((k,i)=>{
       const mu = parseFt(up.a.vals[k]?.mid), ml = parseFt(lo.a.vals[k]?.mid);
       const mneed = isZ(up.a) ? 12 : 4;
       if(typeof BLDG==="function" && BLDG(S.spans[k]) && !isZ(up.a)) return;   /* service to a house / building: not designed, only the 12" at the pole is kept (FE 411) */
-      if(!dropPair && !(sameCo && hu===hl) && S.active.includes(k) && mu!=null && ml!=null && !isNaN(mu) && !isNaN(ml) && mu - ml < mneed) add({who:isZ(up.a) ? lo.a.name : up.a.name, what:KIND[up.a.type]||"Comm", k, code:"EBC", cell:L+(ATT_BASE(up.j)+14+i), note:isZ(up.a) ? `Fail at ${fmt(mu-ml)} below Zayo FE ADSS in midspan (needs 12")` : `Fail at ${fmt(mu-ml)} above ${lo.a.name||"the next comm"} in midspan (needs 4")`, j:up.j});
+      if(!dropPair && !(sameCo && hu===hl) && S.active.includes(k) && onSheet(up.j, i) && onSheet(lo.j, i) && mu!=null && ml!=null && !isNaN(mu) && !isNaN(ml) && mu - ml < mneed) add({who:isZ(up.a) ? lo.a.name : up.a.name, what:KIND[up.a.type]||"Comm", k, code:"EBC", cell:L+(ATT_BASE(up.j)+14+i), note:isZ(up.a) ? `Fail at ${fmt(mu-ml)} below Zayo FE ADSS in midspan (needs 12")` : `Fail at ${fmt(mu-ml)} above ${lo.a.name||"the next comm"} in midspan (needs 4")`, j:up.j});
     });
   }
   // ---- at the pole, beyond the sheet's per-span rows: every comm on the pole (drops that don't reach a measured
   // midspan too) against the lowest power bolt (44"), secondary drip loops and risers (40").
   // The After MR column is checked too, on its own heights (11/16: a drip-loop violation the make-ready didn't fix
   // dropped off the After MR result): comms as the column has them, power and drip loops / risers as the make-ready leaves them.
-  if(JOB && c.node && JOB.nodes?.[c.node]){
+  if(FULL && JOB && c.node && JOB.nodes?.[c.node]){
     try{
       const pf = K.mainPhoto(JOB, JOB.nodes[c.node]) || {}, tr = JOB.traces?.trace_data || {}, pw = K.poleWires(pf);
-      const aft = !!c.after;
+      const aft = !!(c.after || c.newPole);   // a new midspan pole's column is its after-MR layout
       // After MR heights by trace: recorded by afterCol; a column saved before that falls back to the Katapult MR moves
       const mh = !aft ? null : (c.mrH || (!c.fromAfter && !c.plan ? Object.fromEntries(Object.entries(pw).map(([t,w])=>[t, w.h + mrOf(w)])) : null));
       // a lowest-power height typed on the After MR column wins over the recorded one
@@ -981,18 +992,15 @@ function violationsOf(c, L){   // every violation in one column, with its code (
         let note = "";
         if(low!=null && low - w.h < 44) note = `Fail at ${fmt(low - w.h)} below the lowest secondary/neutral bolt at the pole (needs 44")`;
         else { const e = eq.find(e=>w.h > e._measured_height - 40); if(e) note = w.h > e._measured_height ? `Fail: ${fmt(w.h)} is above the ${e.equipment_type==="riser"?"riser":"secondary drip loop"} at ${fmt(e._measured_height)} (needs 40" below it)` : `Fail at ${fmt(e._measured_height - w.h)} below the ${e.equipment_type==="riser"?"riser":"secondary drip loop"} (needs 40")`; }
-        if(note && !seen.has(who)){ seen.add(who); add({who, what:KIND[kind]||"Comm", k:null, code:"EPC", cell:"", note, pole:true}); }
+        if(note && !seen.has(who)){ const ja = (S.atts||[]).findIndex(a=>a && (a.trace===t || KEYS.some(k=>a.vals?.[k]?.trace===t))); if(ja<0 || !sheetComm(ja)) return; seen.add(who); add({who, what:KIND[kind]||"Comm", k:null, code:"EPC", cell: ja>=0 ? L+(ATT_BASE(ja)+8) : "", note, pole:true, j: ja>=0 ? ja : undefined}); }
       });
     }catch(e){}
   }
   if(String(S.prop.name||"").trim()){
     KEYS.forEach((k,i)=>{
       for(const r of [321+i, 327+i]) if(R.CL[r]==="fail") add({who:S.prop.name, what:"proposed", k, code:rowCode(r), cell:L+r, note:R.NT[r], prop:true});
-      const ps = S.prop.spans[k]||{}, sp = S.spans[k], pm = parseFt(sp.mid), qm = parseFt(ps.mid);
-      if(ps.in && S.active.includes(k) && pm!=null && qm!=null && !isNaN(pm) && !isNaN(qm)){
-        const need = midNeed(sp);
-        if(pm - qm < need) add({who:S.prop.name, what:"proposed", k, code:"PBC", cell:"", note:`Fail: proposed midspan ${fmt(qm)} is ${fmt(pm-qm)} below the ${PWR_NAME[sp.ptype]||"lowest power"} (needs ${need}")`, prop:true});
-      }
+      // 11/22: no proposed-to-power midspan check: the VDS sheet doesn't have one (rows 321–326 pole distance and 327–332 ground
+      // clearance only). The proposed's midspan height is the designer's to set.
     });
   }
   return {list:out, R, era:R.E.v3};

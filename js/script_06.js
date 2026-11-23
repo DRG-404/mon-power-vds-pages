@@ -42,7 +42,7 @@
           if(fr && fr.specs.length) list = fr.specs.slice();
         }
         if(stl && !list.some(x=>/^0?16-100/.test(x))) list.push("16-100");
-        specLine = list.length ? `PRI Spec ${join(list.map(z))}${stds.length ? "" : ` (from the framing in Katapult${fr && fr.why.length ? ": " + fr.why[0] : ""}; check)`}` : "PRI Spec ?";
+        specLine = list.length ? `PRI Spec ${join(list.map(z))}` : "PRI Spec ?";
       }
       if(tagless && spec && !main?.[1]?._measured) return `New midspan pole ${spec[1]}'-${spec[2]} using CS ${stds.length ? stds.join(", ") : "8-010, 8-105"}`;
       if(h){
@@ -50,13 +50,17 @@
         let att = (g.after && g.after.prop && g.after.prop.height) || (b.prop && b.prop.height) || "";
         if(!att && b.prop && b.prop.trace){ const w = polePW(JOB, b.node)[b.prop.trace]; if(w && w.h!=null) att = fmt(w.h + (parseFloat(w.mr)||0)); }
         const lines = [`Replace pole to ${h}'/${cls}${att ? `, attach at ${att}` : ""}`, specLine];
+        if(g.after && g.after.design && !katapultReplaces(b.node)) lines.push("Check: this replacement is a saved design; Katapult doesn't replace this pole");
         if(nm && (nm[3]!==String(h) || String(nm[4])!==String(cls))) lines.push(`Check: the pole top MR note says ${nm[3]}'/${nm[4]}`);
         return lines.join("\n\n");
       }
       return "";
     }catch(e){ return ""; }
   }
-  const autoRow = ci => { const r = vdsRow(ci); const cs = csLine(ci); r.mre = ABBR([r.mre, cs, r.results].filter(Boolean).join("\n\n")); delete r.results; r.cs = cs; return r; };   // the VDS's own Notes row (auto)
+  /* The note is what goes to QC: no "(from the framing in Katapult …; check)" and no "X Passed / still fails with …" lines.
+     A design that still fails is shown as a warning beside the note instead (it means the MR isn't finished, not something to write down). */
+  const NOTE_CLEAN = t => String(t||"").replace(/ \(from the framing in Katapult[^)\n]*\)/g, "").split("\n\n").filter(x=>!/ (Passed|still fails) with /.test(x)).join("\n\n");
+  const autoRow = ci => { const r = vdsRow(ci); const cs = csLine(ci); r.check = String(r.results||"").split("\n\n").filter(x=>/ still fails with /.test(x)); r.mre = ABBR([r.mre, cs].filter(Boolean).join("\n\n")); delete r.results; r.cs = cs; return r; };   // the VDS's own Notes row (auto)
   let MAIN = "vds", NT = {rows:{}, recollects:""};
   const ntKey = () => "vcw-nt:" + (JOB?.name || "no-job");
   const ntLoad = () => { try{ NT = JSON.parse(localStorage.getItem(ntKey())||"null") || {rows:{}, recollects:""}; }catch(e){ NT = {rows:{}, recollects:""}; } NT.rows ||= {}; };
@@ -66,7 +70,7 @@
   const rowKey = ci => { const b = groupOf(ci).base; return b.node || b.tag || ("col" + ci); };
   const FIELDS = ["cat","mtype","pla","mre","cell","dir","post","pre"];
   // every Notes row now carries your edits (Copy Notes rows in the toolbar too)
-  notesRow = function(ci){ sync(); const r = autoRow(ci), e = NT.rows[rowKey(ci)] || {}; FIELDS.forEach(f=>{ if(e[f]!=null) r[f] = e[f]; }); r.mre = ABBR(r.mre); return r; };
+  notesRow = function(ci){ sync(); const r = autoRow(ci), e = NT.rows[rowKey(ci)] || {}; FIELDS.forEach(f=>{ if(e[f]!=null) r[f] = e[f]; }); r.mre = ABBR(NOTE_CLEAN(r.mre)); return r; };
 
   const MCLS = {"No MR":"c-nomr","Com Rearrangement":"c-comm","Power Make Ready":"c-power","Replacement":"c-repl"};
   const CCLS = {"No Violations":"c-nov","Midspan Violation":"c-mid","Pole Violation":"c-pole","Not Sure":"c-ns"};
@@ -79,6 +83,7 @@
   const view = document.createElement("div"); view.className = "ntview"; view.id = "ntview"; view.hidden = true;
   $("work").after(view);
 
+  window.__ntRedraw = ()=>{ if(MAIN==="notes") try{ render_(); }catch(e){} };
   function setMain(m){
     MAIN = m;
     nav.querySelectorAll("button").forEach(b=>b.setAttribute("aria-selected", String(b.dataset.main===m)));
@@ -106,10 +111,11 @@
     }catch(e){ console.error(e); return 0; }
   }
   function rows(){ sync(); const s0 = SEL;
-    const out = groupStarts().map(ci=>{ const a = autoRow(ci), key = rowKey(ci); let e = NT.rows[key] || {};
+    const out = groupStarts().map((ci, ii)=>{ const a = autoRow(ci), key = rowKey(ci); let e = NT.rows[key] || {};
       // rows imported from your Notes Template are matched by SCID
       const imp = NT.imported?.[normScid(a.scid)]; if(imp && !e._imp){ const add = {}; Object.keys(imp).forEach(f=>{ if(!e["_vds_"+f]) add[f] = imp[f]; }); e = Object.assign({}, add, e, {_imp:1}); NT.rows[key] = e; ntSave(); }
-      const r = Object.assign({}, a); FIELDS.forEach(f=>{ if(e[f]!=null) r[f] = e[f]; }); r.mre = ABBR(r.mre); return {ci, key, tag:groupOf(ci).base.tag||"", auto:a, r, e}; });
+      ["cell","dir","post","pre"].forEach((f, k)=>{ a[f] = tplBlock(a[f], ii, k); });
+      const r = Object.assign({}, a); FIELDS.forEach(f=>{ if(e[f]!=null) r[f] = e[f]; }); r.mre = ABBR(NOTE_CLEAN(r.mre)); return {ci, key, tag:groupOf(ci).base.tag||"", auto:a, r, e}; });
     const have = new Set(out.map(x=>normScid(x.auto.scid)));
     Object.entries(NT.imported||{}).forEach(([sc, imp])=>{ if(have.has(sc)) return; const key = "imp:" + sc, e = NT.rows[key] || {}; const a = {scid:sc, cat:"", mtype:"", pla:"", mre:"", cell:"", dir:"", post:"", pre:""}; const r = Object.assign({}, a, imp, e); r.mre = ABBR(r.mre); out.push({ci:-1, key, tag:"not in the VDS yet", auto:a, r, e:Object.assign({}, imp, e), orphan:true}); });
     out.sort((x,y)=>{ const nx = parseFloat(x.r.scid), ny = parseFloat(y.r.scid); return (isNaN(nx)?1e9:nx)-(isNaN(ny)?1e9:ny) || String(x.r.scid).localeCompare(String(y.r.scid)); });
@@ -137,7 +143,7 @@
         <td class="dd"><select class="${CCLS[r.cat]||""}" data-nt="${esc(x.key)}|cat" aria-label="Violations">${opt(CATS, r.cat)}</select>${edited(x,"cat")}</td>
         <td class="dd"><select class="${MCLS[r.mtype]||""}" data-nt="${esc(x.key)}|mtype" aria-label="MRE Type">${opt(MTYPES, r.mtype)}</select>${edited(x,"mtype")}</td>
         <td class="pla"><select class="${PCLS[r.pla||""]}" data-nt="${esc(x.key)}|pla" aria-label="PLA">${opt(["","Pass","Fail"], r.pla||"")}</select></td>
-        <td class="mre"><textarea data-nt="${esc(x.key)}|mre" aria-label="MRE Notes" rows="${Math.max(4, String(r.mre||"").split("\n").length+1)}">${esc(r.mre||"")}</textarea>${edited(x,"mre")}</td>
+        <td class="mre"><textarea data-nt="${esc(x.key)}|mre" aria-label="MRE Notes" rows="${Math.max(4, String(r.mre||"").split("\n").length+1)}">${esc(r.mre||"")}</textarea>${edited(x,"mre")}${(x.auto.check||[]).length ? `<div class="nt-warn" role="note"><b>MR not finished</b> (not copied into the note): ${esc(x.auto.check.join("; "))}. Finish the moves in Katapult or check the midspan heights, then reload the JSON.</div>` : ""}</td>
         <td class="blk">${ta("cell")}</td><td class="blk">${ta("dir")}</td><td class="blk">${ta("post")}</td><td class="blk">${ta("pre")}</td></tr>`; }).join("")}
       </tbody></table></div>`;
   }
@@ -182,28 +188,31 @@
   async function notesXlsx(btn){
     btn.disabled = true; const lab = btn.textContent; btn.textContent = "Building…";
     try{
-      const ExcelJS = await loadExcel(), wb = new ExcelJS.Workbook(), ws = wb.addWorksheet("Notes");
-      const R = rows(), fill = c => ({type:"pattern", pattern:"solid", fgColor:{argb:"FF"+c}});
-      const COL = {"No MR":"11734B","Com Rearrangement":"F8F000","Power Make Ready":"FDB707","Replacement":"B10202","No Violations":"D4EDBC","Midspan Violation":"FFCFC9","Pole Violation":"3D85C6","Not Sure":"3D3D3D","Pass":"11734B","Fail":"CC0000"};
-      const DARK = new Set(["No MR","Replacement","Pole Violation","Not Sure","Pass","Fail"]);
-      ws.getCell("A1").value = "MR Counter"; ws.getCell("C1").value = "PCI Counter"; ws.getCell("E1").value = "Recollects";
-      MTYPES.forEach((m,i)=>{ const a = ws.getCell("A"+(i+2)), b = ws.getCell("B"+(i+2)); a.value = m; a.fill = fill(COL[m]); a.font = {color:{argb:DARK.has(m)?"FFFFFFFF":"FF202124"}, bold:true}; b.value = R.filter(x=>x.r.mtype===m).length; if(m==="Power Make Ready") a.value = "Power Work"; });
-      CATS.forEach((m,i)=>{ const a = ws.getCell("C"+(i+2)), b = ws.getCell("D"+(i+2)); a.value = m; a.fill = fill(COL[m]); a.font = {color:{argb:DARK.has(m)?"FFFFFFFF":"FF202124"}, bold:true}; b.value = R.filter(x=>x.r.cat===m).length; });
-      ws.getCell("A6").value = "Total"; ws.getCell("B6").value = R.length; ws.getCell("C6").value = "Total"; ws.getCell("D6").value = R.length;
-      ws.getCell("E2").value = NT.recollects || ""; ws.getCell("E2").alignment = {wrapText:true, vertical:"top"};
-      const head = ["Scid","Violations","MRE Type","PLA","MRE Notes (Mark Questions in Red and ask all at the same time)","Cell #","Scid direction","Clearance Post-1990","Clearance Pre-1990"];
-      ws.getRow(7).values = head; ws.getRow(7).eachCell(c=>{ c.font = {bold:true}; c.fill = fill("B7B7B7"); c.alignment = {horizontal:"center", wrapText:true}; });
-      R.forEach((x,i)=>{ const r = x.r, row = ws.getRow(8+i);
-        row.values = [/^\d+$/.test(r.scid)?+r.scid:r.scid, r.cat, r.mtype, r.pla||"", r.mre, r.cell, r.dir, r.post, r.pre];
-        [[2,r.cat],[3,r.mtype],[4,r.pla]].forEach(([c,v])=>{ if(COL[v]){ row.getCell(c).fill = fill(COL[v]); row.getCell(c).font = {color:{argb:DARK.has(v)?"FFFFFFFF":"FF202124"}, bold:true}; } });
-        row.eachCell(c=>{ c.alignment = Object.assign({vertical:"top", wrapText:true}, c.alignment||{}); });
-        row.getCell(2).dataValidation = {type:"list", allowBlank:true, formulae:['"'+CATS.join(",")+'"']};
-        row.getCell(3).dataValidation = {type:"list", allowBlank:true, formulae:['"'+MTYPES.join(",")+'"']};
-        row.getCell(4).dataValidation = {type:"list", allowBlank:true, formulae:['"Pass,Fail"']};
-      });
-      [8,18,20,8,48,14,16,20,20].forEach((w,i)=>ws.getColumn(i+1).width = w);
-      ws.views = [{state:"frozen", ySplit:7}];
-      const buf = await wb.xlsx.writeBuffer();
+      const ExcelJS = await loadExcel(), wb = new ExcelJS.Workbook(); await wb.xlsx.load(tplBuf("notes"));
+      const ws = wb.getWorksheet("Design V2.1") || wb.worksheets.find(w=>String(w.getCell("A7").value||"").trim()==="Scid") || wb.worksheets[0];
+      const R = rows(), FIRST = 8;
+      let last = FIRST; while(String(ws.getCell(last+1, 1).value ?? "").trim() !== "" || ws.getCell(last+1, 6).value) last++;   // the template's numbered rows (8–32)
+      const copyRow = (from, to) => { for(let c=1;c<=Math.max(18, ws.columnCount);c++){ const s0 = ws.getCell(from, c), t0 = ws.getCell(to, c); t0.style = JSON.parse(JSON.stringify(s0.style||{})); if(s0.dataValidation?.type) t0.dataValidation = JSON.parse(JSON.stringify(s0.dataValidation)); } ws.getRow(to).height = ws.getRow(from).height; };
+      const need = FIRST + R.length - 1;
+      if(need > last){
+        for(let r=last+1;r<=need;r++){ copyRow(last, r); for(const c of [6,7,8,9]) ws.getCell(r, c).value = ws.getCell(last, c).value; ws.getCell(r, 1).value = String(r - FIRST + 1); }
+        // the counters count the whole list
+        for(let r=1;r<FIRST;r++) for(let c=1;c<=8;c++){ const v = ws.getCell(r,c).value; if(v && typeof v==="object" && v.formula) ws.getCell(r,c).value = {formula: v.formula.replace(new RegExp("(\\$?[A-Z]\\$?)"+last+"\\b","g"), "$1"+need)}; }
+        last = need;
+      }
+      // a block cell (Cell #, Scid direction, clearances) keeps the template's own heading and numbering in that row
+      const block = (tplText, ours) => { const t = String(tplText ?? ""), head = t.split("\n")[0] || String(ours||"").split("\n")[0];
+        const dot = /\n1\./.test(t) || !/\n1\n/.test(t);
+        const vals = {}; String(ours||"").split("\n").forEach(l=>{ const m = l.match(/^(\d+)\.?\s?(.*)$/); if(m) vals[m[1]] = m[2]; });
+        const n = Math.max(6, ...Object.keys(vals).map(Number));
+        return head + "\n\n" + Array.from({length:n}, (_, k)=>`${k+1}${dot?".":""}${vals[k+1] ? " " + vals[k+1] : ""}`).join("\n"); };
+      R.forEach((x, i)=>{ const r = x.r, row = FIRST + i;
+        ws.getCell(row, 1).value = String(r.scid ?? "");
+        ws.getCell(row, 2).value = r.cat || null; ws.getCell(row, 3).value = r.mtype || null; ws.getCell(row, 4).value = r.pla || null; ws.getCell(row, 5).value = r.mre || null;
+        [[6, r.cell], [7, r.dir], [8, r.post], [9, r.pre]].forEach(([c, v])=>{ ws.getCell(row, c).value = block(ws.getCell(row, c).value, v); }); });
+      // rows past the job's poles stay as the template has them
+      if(NT.recollects) { const c = ws.getCell("D3"); c.value = NT.recollects; }
+      const buf = await tidyXlsx(await wb.xlsx.writeBuffer());
       await offerFile(buf, `Notes ${JOB?.name || "worksheet"}.xlsx`.replace(/[\\/:*?"<>|]+/g," "), "Saved. Upload it to Google Drive and open it with Google Sheets.");
     }catch(err){ console.error(err); toast("Couldn't build the file (the spreadsheet library didn't load). Use Copy all rows instead."); }
     finally{ btn.disabled = false; btn.textContent = lab; }
