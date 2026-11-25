@@ -36,16 +36,15 @@ function fmt(inches){
 }
 const num = s => { const v = parseFloat(String(s??"").replace(/[^\d.]/g,"")); return isNaN(v)?null:v; };
 
-// Mirrors the sheet: spans under 100' use the 100' row; 341–350' use the 350' row (20' tables); else round up to the step.
+// FE411: use the 100-ft minimum for power sag, not clearance lookups.
 function lookup(tbl, cond, span){
   const ci = tbl.cols.indexOf(cond);
   if(ci<0) return {status:"na"};
-  if(span==null) return {status:"missing"};
+  if(!Number.isFinite(span) || span<=0) return {status:"missing"};
   const step = tbl===PRE ? 25 : 20;
-  // FIXED team worksheet (11/11): every table lookup is MATCH(CEILING(span,20|25)) with no MAX(span,100) and no 340–350
-  // special case. The tables start at 100', so a span that rounds under 100' finds no row and the sheet cell stays blank.
-  const key = Math.ceil(span/step)*step;
-  if(key < 100) return {status:"blank", row:key}; // same as the sheet: CEILING(span,20) / CEILING(span,25), so the tool and the Google template never disagree (the 350 row is never used)
+  const bin = step===20 && span>340 && span<=350 ? 350 : Math.ceil(span/step)*step;
+  const key = tbl===SAG ? Math.max(100,bin) : bin;
+  if(key < 100) return {status:"blank", row:key};
   const row = tbl.rows.find(r => r[0] === key), below = false;
   if(!row) return {status:"tbd", row:null};
   const v = row[ci+1];
@@ -125,8 +124,10 @@ const neutralCol = () => S.era==="pre1961" ? 4 : S.era==="pre1990" ? 1 : 0;   //
 const iceAdj = len => (len!=null && len>175) ? Math.round((len-175)*0.01*12) : 0; // sheet rows 57–62
 function spanEnv(k){ return DATA.nesc[S.spans[k].env] || null; }
 function commAllowance(type, len){ // sheet rows 126–131: post-1990 comm midspan ice allowance (in)
-  if(len==null) return 0;
+  if(!Number.isFinite(len)||len<=0) return null;
+  len = Math.ceil(len);
   const t = SHEET_COMM[type];
+  if(!t) return null;
   const rate = t==="Copper" ? (len<200 ? .015 : len<300 ? .016 : .017) : (len<300 ? .005 : .01);
   return len*rate*12;
 }
@@ -138,14 +139,12 @@ function calcPower(k){
   if(!env){ out.status="missing"; return out; }
   out.reqPost = ovr ?? (feReq(sp, powCol(sp)) ?? env[0]); out.feWhy = ovr!=null ? "" : feWhy(sp, powCol(sp));
   const sag = lookup(SAG, sp.cond, len); out.sag = sag;
-  const sagIn = sag.status==="ok" ? sag.v : 0;
-  out.calc = pole - sagIn; out.blank = sag.status==="blank";
+  const sagIn = sag.status==="ok" ? sag.v : null;
+  out.calc = sagIn==null ? null : Math.round(Math.round(pole) - sagIn); out.blank = sag.status==="blank";
   // elevation credit (Workflow 411: midspan ground lower than the poles), still capped by the Katapult midspan
   const cr = parseFt(sp.elev); out.credit = (cr!=null && !isNaN(cr) && cr>0) ? cr : 0;
-  let effPost = (mid!=null && !isNaN(mid)) ? Math.min(mid, out.calc + out.credit) : out.calc + out.credit;
+  let effPost = Number.isFinite(mid) && Number.isFinite(out.calc) && out.calc>=0 ? Math.round(Math.min(mid, out.calc + out.credit)) : null;
   out.effPost = effPost;
-  // a short span has no sag row (row 87–92 blank on the sheet): only the Katapult midspan is left to compare (411 step: the lower of the two)
-  if(out.blank){ effPost = (mid!=null && !isNaN(mid)) ? mid : null; out.effPost = effPost; }
   out.post = sag.status==="tbd" ? "tbd" : effPost==null ? "missing" : effPost >= out.reqPost ? "pass" : "fail";
   if(isPre()){
     const base = ovr ?? env[neutralCol()];
@@ -182,8 +181,9 @@ function calcComm(att, k){
   // post-1990
   const sepPost = lookup(commTable(att.type), sp.cond, len); out.sepPost = sepPost;
   out.gcReqPost = ovr ?? (feReq(sp, "comm") ?? env[0]);
-  out.allow = Math.round(commAllowance(att.type, len));
-  out.effMid = hasMid ? Math.round(cMid - commAllowance(att.type, len)) : null;
+  const allowance = commAllowance(att.type, len);
+  out.allow = allowance==null ? null : Math.round(allowance);
+  out.effMid = hasMid && allowance!=null && Math.round(cMid)>=allowance ? Math.round(Math.round(cMid) - allowance) : null;
   const sepOkPost = noPow ? "pass" : sepPost.status==="ok" ? (out.sep >= sepPost.v ? "pass":"fail") : sepPost.status==="tbd" ? "tbd" : "missing";
   const gcPost = out.effMid==null ? "missing" : out.effMid >= out.gcReqPost ? "pass":"fail";
   out.post = all(sepOkPost, gcPost); out.sepOkPost = sepOkPost; out.gcPost = gcPost;
@@ -265,10 +265,11 @@ function eraFor(c){
 const tblFmt = (tbl, v) => (tbl===PRE || v===44 || v===34) ? `${v}"` : fmt(v);
 const envWord = e => ({"DOT Road":"DOT Roadway","Non-DOT Road":"Non-DOT Roadway"})[e] || e;   /* wording used in the worksheet Fail notes */
 const fi = v => { if(v==null||isNaN(v)) return "—"; const n = Math.round(v), neg = n<0, a = Math.abs(n); return (neg?"-":"")+Math.floor(a/12)+"'"+(a%12)+'"'; };
-const ynOf = sts => sts.includes("fail") ? "Yes" : sts.length && sts.every(s=>s==="pass") ? "No" : "";
+const ynOf = (sts, rev) => sts.includes("fail") ? "Yes" : (rev && rev.length) ? "" : sts.length && sts.every(s=>s==="pass") ? "No" : "";   /* audit 11/23: a span missing required data leaves the verdict blank for review, never No */
 function compute(c){
   const E = eraFor(c);           // also points S at c and sets S.era
-  const V = {}, F = {}, CL = {}, NT = {}, A = {3:E.auto3, 4:E.auto4};
+  const V = {}, F = {}, CL = {}, NT = {}, A = {3:E.auto3, 4:E.auto4}, REV = {};
+  const review = (r, why) => { (REV[r] ||= []).includes(why) || REV[r].push(why); };
   const pre = S.era!=="post", ncol = neutralCol();
   const powSt = [];
   KEYS.forEach((k,i)=>{
@@ -284,7 +285,7 @@ function compute(c){
     if(pre && req!=null){ const r57 = (len!=null && len>175) ? req + iceAdj(len) : req; V[57+i] = r57; if(len!=null) V[63+i] = fmt(r57); }
     if(!pre && len!=null && sp.cond){
       const s = lookup(SAG, sp.cond, len);
-      if(s.status==="ok"){ V[69+i] = fmt(s.v); V[75+i] = s.v; if(pole!=null && !isNaN(pole)){ V[81+i] = Math.round(pole - s.v); V[87+i] = fmt(pole - s.v); }
+      if(s.status==="ok"){ V[69+i] = fmt(s.v); V[75+i] = s.v; if(Number.isFinite(pole) && Number.isFinite(mid) && Math.round(pole)>=s.v){ const ice = Math.round(Math.min(Math.round(pole)-s.v,Math.round(mid))); V[81+i] = ice; V[87+i] = fmt(ice); }
       }
       else if(s.status==="blank"){ F[87+i] = `${len}′ span: the sheet's sag lookup is CEILING(${len},20) = ${s.row}, and the sag table starts at 100′, so rows ${69+i}, ${75+i}, ${81+i} and ${87+i} stay blank like the worksheet. The tool still checks the Katapult midspan for this span.`; }
       else if(s.status==="tbd"){ V[69+i] = "TBD"; V[87+i] = "TBD"; CL[87+i] = "tbd"; F[87+i] = "TBD: span too long for the sag table. Workflow: set a midspan pole."; }
@@ -292,13 +293,14 @@ function compute(c){
     if(on && pole!=null && !isNaN(pole)){
       const r = calcPower(k);
       if(r.status!=="missing") powSt.push(r.status);
+      else review(93, `${SPAN_NAMES[i]} span: ${!spanEnv(k) && parseFt(sp.ovr)==null ? "no environment" : "no Katapult midspan measurement for the lowest power"}`);
       if(!pre && r.post==="fail"){ CL[87+i] = "fail"; NT[87+i] = `Fail at ${fmt(r.effPost)} over ${envWord(sp.env)}`; F[87+i] = r.blank ? `Fail: Katapult midspan ${fmt(r.effPost)} is below ${fmt(r.reqPost)} (row 87–92 is blank on a span under 100′, so the midspan decides).` : `Fail: lower of pole − sag (${fmt(r.calc)}${r.credit?` + ${fmt(r.credit)} elevation credit`:""}) and Katapult midspan (${mid!=null&&!isNaN(mid)?fmt(mid):"—"}) is ${fmt(r.effPost)}; needs ${fmt(r.reqPost)}${r.feWhy?` (${r.feWhy})`:""}.`; }
       if(!pre && r.post==="pass" && r.credit && r.calc < r.reqPost){ F[87+i] = `Passes with the elevation credit: pole − sag ${fmt(r.calc)} + ${fmt(r.credit)} (midspan ground lower than the poles), capped by the Katapult midspan.`; }
       if(pre && r.pre==="fail"){ CL[63+i] = "fail"; NT[63+i] = `Fail at ${fmt(mid)} over ${envWord(sp.env)}`; F[63+i] = `Fail: Katapult midspan ${fmt(mid)} is below ${fmt(r.reqPre)}.`; }
       if(pre && r.post==="fail" && r.pre==="pass"){ F[63+i] = `OK under Pre-1990 (Post-1990 would fail at ${fmt(r.effPost)}).`; }
     }
   });
-  A[93] = ynOf(powSt);
+  A[93] = ynOf(powSt, REV[93]);
   for(let j=0;j<5;j++){
     const a = S.atts[j], b = ATT_BASE(j); if(!realAtt(a)) continue;
     const sts = [];
@@ -315,17 +317,24 @@ function compute(c){
       }
       if(pre && V[63+i]!=null) V[b+26+i] = V[63+i];
       const cMid = parseFt(v.mid);
-      if(!pre && cMid!=null && !isNaN(cMid) && len!=null){ const e = Math.round(cMid - commAllowance(a.type, len)); V[b+32+i] = e; V[b+38+i] = fmt(e); }
+      const allowance = commAllowance(a.type, len);
+      if(!pre && Number.isFinite(cMid) && allowance!=null && Math.round(cMid)>=allowance){ const e = Math.round(Math.round(cMid) - allowance); V[b+32+i] = e; V[b+38+i] = fmt(e); }
       if(S.active.includes(k) && v.pole){
         const r = calcComm(a,k);
         if(r.status!=="skip" && r.status!=="missing") sts.push(r.status);
+        if(r.status==="missing"){
+          const who = a.name || `Attachment ${j+1}`, gc = pre ? r.gcPre : r.gcPost, sep = pre ? r.sepOkPre : r.sepOkPost;
+          if(gc===undefined) review(b+44, `${SPAN_NAMES[i]} span: no environment`);
+          else { if(gc==="missing") review(b+44, `${SPAN_NAMES[i]} span: no Katapult midspan measurement for ${who}`);
+            if(sep==="missing" && !shortSpan) review(b+44, `${SPAN_NAMES[i]} span: no clearance-table value for ${who} (check the span length and conductor)`); }
+        }
         const sepSt = shortSpan ? null : (pre ? r.sepOkPre : r.sepOkPost);
         if(sepSt==="fail"){ CL[b+20+i] = "fail"; NT[b+20+i] = `Fail at ${fmt(r.sep)} from lowest power (needs ${V[b+20+i]})`; F[b+20+i] = `Fail: ${fmt(r.sep)} below lowest power at the pole; needs ${V[b+20+i]}.`; }
         if(pre && r.gcPre==="fail"){ CL[b+26+i] = "fail"; NT[b+26+i] = `Fail at ${fmt(cMid)} over ${envWord(sp.env)}`; F[b+26+i] = `Fail: Katapult midspan ${fmt(cMid)} is below ${fmt(r.gcReqPre)}.`; }
         if(!pre && r.gcPost==="fail"){ CL[b+38+i] = "fail"; NT[b+38+i] = `Fail at ${fmt(r.effMid)} over ${envWord(sp.env)}`; F[b+38+i] = `Fail: Katapult midspan ${fmt(cMid)} less ice allowance (${r.allow}") is ${fmt(r.effMid)}; needs ${fmt(r.gcReqPost)}.`; }
       }
     });
-    A[b+44] = ynOf(sts);
+    A[b+44] = ynOf(sts, REV[b+44]);
   }
   if(String(S.prop.name||"").trim()){
     const pst = [];
@@ -345,7 +354,8 @@ function compute(c){
     A[333] = pst.includes("fail") ? "Yes" : pst.length ? "No" : "";
   }
   A[7] = ""; // red tag stays manual
-  return {V, F, CL, NT, A, E};
+  Object.entries(REV).forEach(([r, w])=>{ if(A[r]===""){ CL[r] = "tbd"; F[r] = `Needs review: ${w.join("; ")}. Missing data is not a pass.`; } else delete REV[r]; });
+  return {V, F, CL, NT, A, E, REV};
 }
 
 /* ---------- violation codes ---------- */
@@ -462,8 +472,8 @@ const K = {
     const wires = {...ms.wires}; keep.forEach(t=>{ if(ctl.wires[t]!=null) wires[t] = ctl.wires[t]; });
     return {wires, env: ctl.env, overs: ms.overs, units: ms.units, paired: {env: ctl.env, h: low(ctl), others: us.filter(u=>u!==ctl).map(u=>({env:u.env, h:low(u)}))}};
   },
-  powerKind(ct){ ct = (ct||"").toLowerCase(); if(ct.includes("guy")) return null; if(ct.includes("primary")) return "pri"; if(ct.includes("neutral")) return "neutral"; if(ct.includes("secondary")||ct.includes("power drop")||ct.includes("service")) return "sec"; return null; },
-  commKind(ct){ ct = (ct||"").toLowerCase(); if(/power|primary|secondary|neutral|street ?light|guy/.test(ct)) return null; if(ct.includes("drop")) return "adss"; if(ct.includes("telco")) return "telco"; if(ct.includes("catv")) return "catv"; if(ct.includes("fiber")) return "fiber"; if(ct.includes("com drop")) return "adss"; if(ct.includes("strand")) return "fiber"; return null; },
+  powerKind(ct){ ct = (ct||"").toLowerCase(); if(ct.includes("guy")) return null; if(/\bcom\b|comm|telco|catv|fiber/.test(ct)) return null;   /* a comm trace (e.g. "CATV Com Drop") is never power (audit 11/23) */ if(ct.includes("primary")) return "pri"; if(ct.includes("neutral")) return "neutral"; if(ct.includes("secondary")||ct.includes("power drop")||ct.includes("service")) return "sec"; return null; },
+  commKind(ct){ ct = (ct||"").toLowerCase(); if(/power|primary|secondary|neutral|street ?light|guy/.test(ct)) return null; if(/service|triplex/.test(ct) && !/\bcom\b|comm|telco|catv|fiber/.test(ct)) return null;   /* a power service drop ("Service Drop") is power only, not a comm drop (audit 11/23) */ if(ct.includes("drop")) return "adss"; if(ct.includes("telco")) return "telco"; if(ct.includes("catv")) return "catv"; if(ct.includes("fiber")) return "fiber"; if(ct.includes("com drop")) return "adss"; if(ct.includes("strand")) return "fiber"; return null; },
   // "Frontier West Virginia Inc. (Formerly Verizon) ILEC" -> "Frontier", "Citynet, LLC" -> "Citynet"
   shortCo(c){ c = String(c||"").replace(/\(.*?\)/g,"").split(",")[0].trim(); return c.split(/\s+/)[0] || ""; },
   // the pole tag designers use is the one in the pole note ("Pole Tag:"), not Fielders Information
@@ -533,7 +543,7 @@ const K = {
       return {v:null};
     }
     // FE Workflow 411 (11/2026) "Wire specs to use (VDS)": 3-6 Copperweld loads as 6 ACW
-    if(s.includes("COPPERWELD") || /\bCW\b|\bCWC\b/.test(s)) return {v:"6 ACW", exact:s.includes("6"), note:"Copperweld loads as 6 ACW (Workflow 411 VDS wire specs)"};
+    if(s.includes("COPPERWELD") || /\bCW\b|\bCWC\b|\bACW\b/.test(s)) return ["3","4","5","6"].includes(sz) ? {v:"6 ACW", exact:sz==="6", note:"Copperweld loads as 6 ACW (Workflow 411 VDS wire specs)"} : {v:null};
     if(s.includes("DUPLEX")) return {v:null}; if(sz==="4" && s.includes("AAAC")) return {v:"4 ACSR", exact:false};   // 4 AAAC is loaded as 4 ACSR (8-010 conductor match)
     // Workflow 411 step 6: specs larger than 3/0 (4/0, 336, 477, 795…) are entered as 3/0
     const kcmil = parseFloat((s.match(/\b(\d{3}(?:\.\d)?)\b/)||[])[1]);
@@ -544,7 +554,11 @@ const K = {
     if(sz==="2" && (s.includes("ACSR") || /\bAAC\b/.test(s))) return {v:"2 AAAC", exact:false, note:"#2 ACSR / AAC loads as 2 AAAC"};
     // other aluminum sizes with no column of their own go to the same size's ACSR column (flagged to check)
     if((s.includes("AAAC") || /\bAAC\b/.test(s)) && ["1/0","3/0"].includes(sz)) return {v:`${sz} ACSR`, exact:false};
-    if((s.includes("CU")||s.includes("COPPER")) && ["6","4","1"].includes(sz)) return {v:`${sz} CU`, exact:true};
+    if(/\bCU\b|\bCOPPER\b/.test(s)) {
+      if(sz==="6") return {v:"6 CU",exact:true};
+      if(sz==="4") return {v:"4 ACSR",exact:false,note:"8-010 #4 copper maps to #4 ACSR"};
+      if(sz==="2") return {v:"1/0 ACSR",exact:false,note:"8-010 #2 copper maps to 1/0 ACSR"};
+    }
     if(s.includes("ACW") && ["4","6"].includes(sz)) return {v:`${sz} ACW`, exact:true};
     return {v:null};
   },
@@ -629,7 +643,7 @@ const K = {
       if(main.length===1 && i===0){ const me = parseFloat(K.scid(n))||0, them = scidNum(x); k = (them && me && them < me) ? "B" : "A"; } // one pole span: toward a lower SCID = Before, otherwise After (first pole of a run has no Before span)
       if(!k) return; keyOf[x.c===undefined?i:i] = k; x.key = k; S.active.push(k);
       const sp = S.spans[k] = blankSpan(); sp.label = x.label; sp.toHouse = !x.isPoleSpan && x.otype!=="pole" && !/com/i.test(String(K.first(x.c.attributes?.reference_type)||""));   /* a com reference is the comm line going on, not a service to a house */ sp.to = K.scid(x.o) || ""; sp.cid = Object.keys(job.connections||{}).find(id=>job.connections[id]===x.c)||""; sp.olat = x.o.latitude; sp.olon = x.o.longitude;
-      if(x.len!=null) sp.len = String(Math.ceil(x.len - 1e-6));   /* span length always rounds up to the next whole foot */
+      if(Number.isFinite(x.len) && x.len>0) sp.len = String(Math.ceil(Math.round(x.len*10)/10));   /* round displayed tenth-foot length up */
       if(x.len!=null && x.len>=400) warn.push(`${SPANS.find(s=>s[0]===k)[1]} (${x.label}): ${Math.ceil(x.len)}' long span (400'+). WV MRE Procedures Manual: for Citynet, Micrologic, HREA, Digcon and Spruce Knob use Katapult's 1% Ice Sag midspan height as the applicant's midspan height; for every other applicant use CS 8-020 (neutral size vs span length, rounded up) for the secondary/neutral-to-comm spacing. The pole also needs loading (400'+ span).`);
       if(x.ms.paired) warn.push(`${SPANS.find(s=>s[0]===k)[1]} (${x.label}): crosses ${x.ms.overs.join(", ")}. Used the crossing closest to failing: ${fmt(x.ms.paired.h)} over ${x.ms.paired.env}${x.ms.paired.others.length?` (also ${x.ms.paired.others.map(o=>`${fmt(o.h)} over ${o.env}`).join(", ")})`:""}.`);
       else if(x.ms.overs.length>1) warn.push(`${SPANS.find(s=>s[0]===k)[1]} (${x.label}): crosses ${x.ms.overs.join(", ")}; used the strictest, ${x.ms.env}.`);
@@ -639,9 +653,10 @@ const K = {
       // lowest power
       const pow = x.traces.map(t=>({t, kind:K.powerKind(tr[t]?.cable_type), h:pw[t].h, mid:x.ms.wires[t], spec:pw[t].spec})).filter(p=>p.kind);
       if(pow.length){
-        const low = pow.reduce((a,b)=>b.h<a.h?b:a); sp.lowTrace = low.t; sp.powTraces = pow.map(p=>({t:p.t, h:p.h, mid:p.mid??null, kind:p.kind})); sp.oid = x.c.node_id_1===nodeId ? x.c.node_id_2 : x.c.node_id_1;
+        const low = pow.reduce((a,b)=>b.h<a.h?b:a); sp.lowTrace = low.t; sp.powTraces = pow.map(p=>({t:p.t, h:p.h, mid:p.mid??null, kind:p.kind, spec:p.spec||""})); sp.oid = x.c.node_id_1===nodeId ? x.c.node_id_2 : x.c.node_id_1;
         sp.pole = ft(low.h); sp.ptype = low.kind;
-        const mids = pow.map(p=>p.mid).filter(v=>v!=null); if(mids.length) sp.mid = ft(Math.min(...mids));
+        if(Number.isFinite(low.mid)) sp.mid = ft(low.mid);
+        if(pow.some(p=>p.t!==low.t && Number.isFinite(p.mid) && (!Number.isFinite(low.mid)||p.mid<low.mid))) warn.push(`${SPANS.find(s=>s[0]===k)[1]} (${x.label}): a different power trace is lower at midspan; review that conductor independently. The worksheet uses the matching selected pole trace.`);
         if(!low.spec && typeof specOfTrace==="function") low.spec = specOfTrace(low.t) || ""; let c = K.cond(low.spec);
         if(c.v && noteSpecs.length && !sp.toHouse && low.kind!=="sec" && !noteSpecs.some(s=>K.cond(s.spec).v===c.v)){ const nc = K.cond(noteSpecs[0].spec).v; if(nc) warn.push(`${SPANS.find(s=>s[0]===k)[1]} (${x.label}): Katapult traces the lowest power as ${low.spec} (sheet column ${c.v}) but the pole note's Wire Spec says ${noteSpecs.map(s=>s.spec).join(' / ')} (column ${nc}). The comm clearance tables change with it: confirm which one is on the pole.`); }
         if(!c.v && noteSpecs.length){
@@ -677,6 +692,10 @@ const K = {
     existing.filter(t=>!isDrop(t)).forEach(t=>{
       const a = {trace:t, name:coOf(t), type:K.commKind(tr[t].cable_type), vals:{}};
       spansOf(t).forEach(x=>{ a.vals[x.key] = {pole: ft(pw[t].h), mid: ft(x.ms.wires[t]), sag:"", trace:t}; });
+      // audit 11/23: on both poles of a pole-to-pole span but not measured at its midspan: the comm is in the span with no midspan
+      // height, so its ground clearance can't be checked (needs review), rather than the span being dropped from the comm row
+      if(Object.keys(a.vals).length) order.slice(0,6).forEach(x=>{ if(!x.key || !x.isPoleSpan || a.vals[x.key] || x.ms.wires[t]!=null) return; const opf = K.mainPhoto(job, x.o), opw = opf ? K.poleWires(opf) : {};
+        if(opw[t]){ a.vals[x.key] = {pole: ft(pw[t].h), mid:"", sag:"", trace:t}; warn.push(`${SPANS.find(s=>s[0]===x.key)[1]} (${x.label}): ${a.name} is on both poles but has no Katapult midspan measurement in this span; its ground clearance needs review.`); } });
       if(!Object.keys(a.vals).length) order.slice(0,6).forEach(x=>{ if(x.key && x.isPoleSpan) a.vals[x.key] = {pole: ft(pw[t].h), mid:"", sag:"", trace:t}; });
       if(tr[t].cable_type?.toLowerCase().includes("strand")) warn.push(`${a.name}: strand only, treated as Fiber.`);
       rows.push(a);
@@ -888,7 +907,7 @@ function afterCol(src, job, hooks){   // hooks (optional): {move(t), other(k,t),
       // old primary height then read as the lowest power (11/16, checked against a team worksheet).
       const low0 = P.reduce((a,b)=>b.h<a.h?b:a), pool = low0.kind!=="pri" && np.some(p=>p.kind!=="pri") ? np.filter(p=>p.kind!=="pri") : np;
       const low = pool.reduce((a,b)=>b.h<a.h?b:a);
-      if(np.some((p,i)=>p.h!==P[i].h || p.mid!==p.was)){ sp.pole = fmt(low.h); sp.ptype = low.kind; sp.lowTrace = low.t; const ms = np.map(p=>p.mid).filter(v=>v!=null); if(ms.length) sp.mid = fmt(Math.min(...ms)); }
+      if(np.some((p,i)=>p.h!==P[i].h || p.mid!==p.was)){ if(sp.lowTrace!==low.t) sp.cond = K.cond(low.spec || (typeof specOfTrace==="function" ? specOfTrace(low.t) : "")).v || ""; sp.pole = fmt(low.h); sp.ptype = low.kind; sp.lowTrace = low.t; sp.mid = Number.isFinite(low.mid) ? fmt(low.mid) : ""; }
     } else if(sp.lowTrace){
       const p = newPole(sp.lowTrace, parseFt(sp.pole)); if(p!=null) sp.pole = fmt(p);
       const m = newMid(sp.lowTrace, k, parseFt(sp.mid)); if(m!=null) sp.mid = fmt(m);

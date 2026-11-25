@@ -9,6 +9,30 @@ const META = {"labels": {"1": "PROPOSAL", "2": "Pole Tag", "3": "Pre-1990 or Pos
 
 
 
+/* FE411: keep exported formulas and the on-screen ice results in sync. */
+for (const [row,formula] of Object.entries(FORMULAS)) {
+  FORMULAS[row] = formula.replace(/MATCH\(CEILING\((\$?[A-Z]{1,3}\$?\d+),20\),'(SecondaryNeutral Sag|SecondaryNeutral-to-Fiber Commu|SecondaryNeutral-to-Copper Comm|SecondaryNeutral-to-Foreign-Own)'!\$B\$3:\$B\$?334,0\)/g,
+    (match,len,table)=>{
+      const bin=`IF(AND(${len}>340,${len}<=350),350,CEILING(${len},20))`;
+      return match.replace(`CEILING(${len},20)`,table==="SecondaryNeutral Sag"?`IF(AND(ISNUMBER(${len}),${len}>0),MAX(100,${bin}),0)`:bin);
+    });
+}
+{
+  const inches = ref => `ROUND(LEFT(${ref},FIND("'",${ref})-1)*12+ABS(SUBSTITUTE(MID(${ref},FIND("'",${ref})+1,LEN(${ref})),"""","")),0)`;
+  for(let i=0;i<6;i++) {
+    const pole=`B${21+i}`, observed=`B${33+i}`, sag=`B${75+i}`;
+    const power=`MIN((${inches(pole)})-${sag},${inches(observed)})`;
+    FORMULAS[81+i]=`=IFERROR(IF(AND(B$3="Post-1990",${pole}<>"",${observed}<>"",ISNUMBER(${sag})),IF(${power}>=0,ROUND(${power},0),""),""),"")`;
+    for(let j=0;j<5;j++) {
+      const mid=`B${108+45*j+i}`, raw=`B${15+i}`, len=`ROUNDUP(${raw},0)`, kind=`B$${95+45*j}`;
+      const fiber=`OR(${kind}="ADSS",${kind}="Fiber Optic")`;
+      const rate=`IF(${fiber},IF(${len}<300,0.005,0.01),IF(${len}<200,0.015,IF(${len}<300,0.016,0.017)))`;
+      const ice=`(${inches(mid)})-${len}*(${rate})*12`;
+      FORMULAS[126+45*j+i]=`=IFERROR(IF(AND(B$3="Post-1990",${mid}<>"",ISNUMBER(${raw}),${raw}>0,OR(${fiber},${kind}="Copper")),IF(${ice}>=0,ROUND(${ice},0),""),""),"")`;
+    }
+  }
+}
+
 /* ---------- sheet layout ---------- */
 const $ = id => document.getElementById(id);
 const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -161,10 +185,10 @@ function refresh(ci){
     } else if(sp.t==="auto"){
       const el = $(`c${ci}-${r}`); if(!el) continue;
       const a = R.A[r] || "";
-      el.options[0].textContent = (a || (r===4 ? "No" : "Auto")) + (el.matches(":focus") || c.over[r] ? " (auto)" : "");
+      el.options[0].textContent = (a || (r===4 ? "No" : R.REV?.[r] ? "Review" : "Auto")) + (el.matches(":focus") || c.over[r] ? " (auto)" : "");
       el.options[0].className = "opt-auto"; for(let o=1;o<el.options.length;o++){ el.options[o].hidden = false; el.options[o].className = "opt-set"; }
       el.classList.toggle("is-set", !!c.over[r]);
-      el.title = a ? `${a} (automatic, from the data). Pick a value to override it.` : "";
+      el.title = a ? `${a} (automatic, from the data). Pick a value to override it.` : R.REV?.[r] ? `Needs review: ${R.REV[r].join("; ")}. Missing data is not a pass.` : ""; el.classList.toggle("tbd", !a && !c.over[r] && !!R.REV?.[r]);
       el.classList.toggle("auto", !c.over[r]);
       if(r===3 && R.E.why) el.title = R.E.why;
     }
@@ -183,8 +207,8 @@ function renderStatus(){
   chips.push(`<span class="chip"><b>${letterOf(SEL)}</b><span class="muted">${esc(c.tag||"—")}${c.node?` · SCID ${esc(POLES.find(p=>p.id===c.node)?.scid||"")}`:""} · Row 3 ${esc(R.E.v3)}</span></span>`);
   { const lost = (c.warn||[]).filter(w=>/left out|More than one proposed/.test(w)); if(lost.length) chips.push(`<span class="chip fail" title="${esc(lost.join("\n"))}"><b>⚠ Not on the sheet</b><span class="st">${lost.length}</span><span class="muted">${esc(lost.map(w=>w.replace(/;.*$/,"")).join(" · "))}</span></span>`); }
   if(c.node && !c.red && !c.after && !c.twin) chips.push(`<span class="chip tbd"><b>Row 7 red tag</b><span class="st">Not set</span></span>`);
-  chip("Power space", ps.includes("fail")?"fail":ps.includes("tbd")?"tbd":ps.length?"pass":"", "");
-  S.atts.forEach((a,j)=>{ if(!realAtt(a)) return; const st = R.A[ATT_BASE(j)+44]; chip(`${SEC_COLORS[j][0]} · ${a.name||"Attachment "+(j+1)}${a.drop?" drop":""}`, st==="Yes"?"fail":st==="No"?"pass":"", ""); });
+  chip("Power space", ps.includes("fail")?"fail":ps.includes("tbd")?"tbd":R.REV?.[93]?"":ps.length?"pass":"", R.REV?.[93] ? "Needs review: " + R.REV[93].join("; ") : "");
+  S.atts.forEach((a,j)=>{ if(!realAtt(a)) return; const st = R.A[ATT_BASE(j)+44]; chip(`${SEC_COLORS[j][0]} · ${a.name||"Attachment "+(j+1)}${a.drop?" drop":""}`, st==="Yes"?"fail":st==="No"?"pass":"", R.REV?.[ATT_BASE(j)+44] ? "Needs review: " + R.REV[ATT_BASE(j)+44].join("; ") : ""); });
   const pr = S.active.map(k=>S.prop.spans[k]?.in ? calcProp(k) : null).filter(r=>r && r.max!=null);
   if(S.prop.name){ const g = pr.length ? pr.reduce((a,b)=>b.max<a.max?b:a) : null; chip(`Proposed · ${S.prop.name}`, R.A[333]==="Yes"?"fail":g?"pass":"", g?`max ${fmt(g.max)} at pole`:""); }
   const why = c.after ? `After MR column: a copy of the existing column with the make-ready heights${c.mrCount?` (${c.mrCount} Katapult MR move${c.mrCount>1?"s":""} applied)`:""}. Type new heights here; the existing columns to the left stay as the record. Pre-1990 clearances are kept unless the pole height changes (replacement → Post-1990).` : c.twin ? "Pre-1990 copy of the column to the left, made because Post-1990 has a violation. Pre-1990 only gives relief on long spans, driveways (12' 0\") and pedestrian (8' 0\" vs 9' 6\"); farmland and roads need more clearance under Pre-1990." : c.pair ? "Post-1990 has a violation, so the next column is this pole copied and set to Pre-1990 (Workflow 411 steps 7–8)." : R.E.why;
@@ -254,8 +278,8 @@ function mreLines(V){
     AL0.filter(SEP).forEach(v=>{ const other = String(v.note).match(/above (.+) in midspan/)[1]; const t = `${String(v.who).split(/\s+/)[0]}: MAINTAIN 4" SEPARATION AT MIDSPAN OR MATCH SAG OF ${String(other).split(/\s+/)[0]}`.toUpperCase(); if(!sepSeen.has(t)){ sepSeen.add(t); out.push(t); } });
     const cos = [...new Set(V.list.filter(v=>!v.power && !v.prop).map(v=>String(v.who).split(/\s+/)[0]))];
     cos.forEach(co=>{ const js = g.after.atts.map((a,j)=>({a,j})).filter(x=>realAtt(x.a) && String(x.a.name).split(/\s+/)[0]===co).map(x=>ATT_BASE(x.j)+44);
-      const fail = js.some(r=>Ra.A[r]==="Yes") || AL.some(v=>!v.power && !v.prop && String(v.who).split(/\s+/)[0]===co); out.push(fail ? `${co} still fails with ${L}` : `${co} Passed with ${L}`); });
-    if(V.list.some(v=>v.power)) out.push((Ra.A[93]==="Yes" || AL.some(v=>v.power)) ? `Power still fails with ${L}` : `Power Passed with ${L}`);
+      const fail = js.some(r=>Ra.A[r]==="Yes") || AL.some(v=>!v.power && !v.prop && String(v.who).split(/\s+/)[0]===co); const rev = js.some(r=>Ra.REV?.[r]); out.push(fail ? `${co} still fails with ${L}` : rev ? `${co} needs review with ${L} (missing measurement)` : `${co} Passed with ${L}`); });
+    if(V.list.some(v=>v.power)) out.push((Ra.A[93]==="Yes" || AL.some(v=>v.power)) ? `Power still fails with ${L}` : Ra.REV?.[93] ? `Power needs review with ${L} (missing measurement)` : `Power Passed with ${L}`);
   }
   S = COLS[SEL];
   return out;
@@ -422,7 +446,20 @@ function buildCol(nodeId){
 // Post-1990 first, Pre-1990 when Post fails on a pre-1990 line) and every number in the column follows that choice.
 // A pole being replaced (Katapult proposed pole spec or the pole top "Replace ... with ..." MR note) also gets
 // a "SCID MR" column next to it with the new pole and its heights, checked Post-1990.
-function buildGroup(nodeId){
+/* audit 11/23: srcSig fingerprints a pole's columns exactly as built from the loaded file (before any typed change).
+   On a re-load, a pole keeps its columns and typed changes only if the new file builds it identically; otherwise it is
+   rebuilt from the file and its environment verification is cleared, so the same file gives the same result in a fresh
+   session or an existing one. */
+function srcSigOf(g){ const s = JSON.stringify(g); let h1 = 0x811c9dc5, h2 = 0x9e3779b9; for(let i=0;i<s.length;i++){ const ch = s.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 16777619); h2 = Math.imul(h2 ^ ch, 2246822519); h2 ^= h2>>>15; } return (h1>>>0).toString(36) + "." + (h2>>>0).toString(36) + "." + s.length.toString(36); }
+function buildGroup(nodeId){ const g = buildGroupFromFile(nodeId), sig = srcSigOf(g); g.forEach(c=>{ c.srcSig = sig; }); g.srcSig = sig; return g; }
+function freshOrKept(nodeId, mine, changed){
+  const g = buildGroup(nodeId);
+  if(mine.length && mine.every(c=>c.srcSig && c.srcSig===g.srcSig)) return mine;
+  if(mine.length){ changed.push(nodeId); try{ if(WF.env && WF.env[nodeId]){ delete WF.env[nodeId]; wfSave(); } }catch(e){} }
+  return g;
+}
+function changedMsg(changed){ if(!changed.length) return ""; const sc = changed.map(id=>POLES.find(p=>p.id===id)?.scid||id); return ` ${changed.length} pole${changed.length>1?"s":""} changed in this file (SCID ${sc.join(", ")}) and ${changed.length>1?"were":"was"} rebuilt from it: typed changes and environment checks on ${changed.length>1?"them":"it"} were cleared.`; }
+function buildGroupFromFile(nodeId){
   const base = buildCol(nodeId);
   eraFor(base);
   const n = JOB?.nodes?.[nodeId];
@@ -463,13 +500,15 @@ function loadJobText(text, name){
   $("job-name").textContent = `${name||JOB.name||"Job"} · ${POLES.length} poles`;
   // keep columns that already point at poles in this job; otherwise start with the first pole in column B
   let keep = COLS.filter(c=>c.node && JOB.nodes[c.node]);
-  if(!keep.length){ const d = store.forJob(JOB.name); if(d && Array.isArray(d.cols) && d.cols.some(c=>c.node && JOB.nodes[c.node])){ COLS = d.cols.map(c=>Object.assign(blankCol(), c, {over:c.over||{}})); migrateCols(d.job||JOB?.name, d); SEL = Math.min(d.sel||0, COLS.length-1); keep = COLS; if(!STALE){ render(); toast(`Opened your saved work for ${JOB.name}. To start over from this file: More ▾ → Rebuild every pole.`); return; } } }
+  if(!keep.length){ const d = store.forJob(JOB.name); if(d && Array.isArray(d.cols) && d.cols.some(c=>c.node && JOB.nodes[c.node])){ COLS = d.cols.map(c=>Object.assign(blankCol(), c, {over:c.over||{}})); migrateCols(d.job||JOB?.name, d); SEL = Math.min(d.sel||0, COLS.length-1); keep = COLS; if(!STALE){ const changed = [], seen = new Set(), saved = COLS; COLS = saved.flatMap(c=>{ if(!c.node || !JOB.nodes[c.node]) return [c]; if(seen.has(c.node)) return []; seen.add(c.node); return freshOrKept(c.node, saved.filter(x=>x.node===c.node), changed); }); if(!COLS.length) COLS = [blankCol()]; SEL = Math.min(SEL, COLS.length-1); render(); if(changed.length){ store.save(); setTimeout(()=>{ try{ applyDesigns(true); }catch(e){} }, 0); } toast(`Opened your saved work for ${JOB.name}.${changedMsg(changed)} To start over from this file: More ▾ → Rebuild every pole.`); return; } } }
   if(STALE && POLES.length){ STALE = false; COLS = POLES.flatMap(p=>buildGroup(p.id)); SEL = 0; render(); store.save(); toast("Your saved sheet was in the old layout (Pre-1990 copies, proposal name in row 1), so it was rebuilt from this file: one column per pole, plus a (replacement) column for each pole being replaced."); return; }
   if(keep.length){ const have = COLS.filter(c=>c.node && JOB.nodes[c.node]), missing = POLES.filter(p=>!have.some(c=>c.node===p.id));
     // in pole order: the columns you already have (typed changes kept), and a new column for any pole that wasn't on the sheet
-    COLS = POLES.flatMap(p=>{ const mine = have.filter(c=>c.node===p.id); return mine.length ? mine : buildGroup(p.id); });
-    SEL = Math.min(SEL, COLS.length-1); render(); store.save(); if(missing.length) setTimeout(()=>{ try{ applyDesigns(true); }catch(e){} }, 0);
-    toast(`Kept your columns and typed changes${missing.length ? `, and added ${missing.length} pole${missing.length>1?"s":""} that weren't on the sheet` : ""}. To start over from this file: More ▾ → Rebuild every pole.`); }
+    const changed = [];
+    COLS = POLES.flatMap(p=>{ const mine = have.filter(c=>c.node===p.id); return mine.length ? freshOrKept(p.id, mine, changed) : buildGroup(p.id); });
+    if(!COLS.length) COLS = [blankCol()];
+    SEL = Math.min(SEL, COLS.length-1); render(); store.save(); if(missing.length || changed.length) setTimeout(()=>{ try{ applyDesigns(true); }catch(e){} }, 0);
+    toast(`Kept your columns and typed changes${missing.length ? `, and added ${missing.length} pole${missing.length>1?"s":""} that weren't on the sheet` : ""}.${changedMsg(changed)} To start over from this file: More ▾ → Rebuild every pole.`); }
   else if(POLES.length){ COLS = POLES.flatMap(p=>buildGroup(p.id)); SEL = 0; render(); store.save(); setTimeout(()=>{ try{ applyDesigns(true); }catch(e){} }, 0);
     toast(`${POLES.length} poles, one column each (columns B–${letterOf(COLS.length-1)}). Existing violations are flagged in red.`); }
   else render();
@@ -1346,6 +1385,7 @@ async function buildWorkbook(){
         else cell.value = v;
       }
     }
+    Object.entries(R.REV||{}).forEach(([r, w])=>{ if(!HIDDEN.has(+r) && !c.over[r]) ws.getCell(L+r).note = `Review: ${w.join("; ")}. Missing data is not a pass.`; });   /* audit 11/23 */
   });
   // Write every unused template column's formulas out in full too: the template's shared/array formulas
   // otherwise point back at cells we've overwritten, which Excel (unlike Google Sheets) can refuse to load.
